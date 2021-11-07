@@ -1,0 +1,135 @@
+---
+title: "kmean_first_time"
+author: "Zhenning Li"
+date: "2021/11/5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(RODBC)
+library(ggplot2)
+library(scales)
+library(ggrepel)
+
+# Connect to MySQL (use your own credentials)
+db = odbcConnect("mysql_server_64_small", uid="root", pwd="1234567890sos")
+sqlQuery(db, "USE ma_charity_small")
+```
+
+```{r}
+df2<-read.csv("kmeans_first_outcome.csv", as.is = TRUE)
+```
+
+```{r}
+df2 = df2[c(2:6),]
+df2
+```
+
+```{r}
+df2$cum_donors      = cumsum(df2$numdonors)       / sum(df2$numdonors)
+df2$cum_fundraising = cumsum(df2$totalgenerosity) / sum(df2$totalgenerosity)
+
+# Add a "zero"
+# This is how much is collected from no donor at all
+segments = rbind.data.frame(0, df2)
+print(segments)
+```
+
+```{r}
+gain = ggplot(data = df2, aes(x = cum_donors, y = cum_fundraising)) +
+   geom_line(aes(y = cum_donors), color = "grey", size = 1, linetype = 2) +
+   geom_line(color = "darkgreen", size = 2) +
+   geom_point(size = 4) +
+   scale_x_continuous(labels = percent) +
+   scale_y_continuous(labels = percent)
+   geom_text_repel(aes(label = segment))
+print(gain)
+```
+
+
+
+# 第二张图
+```{r}
+library(RODBC)
+library(ggplot2)
+library(scales)
+library(ggrepel)
+
+# Connect to MySQL (use your own credentials)
+db = odbcConnect("mysql_server_64_small", uid="root", pwd="1234567890sos")
+sqlQuery(db, "USE ma_charity_small")
+
+# Report the financial contribution in "period 0" (last 12 months) of donors
+# grouped by which segment they used to belong to in period 1 (a year before)
+# This assumes that you have ran the SQL segmentation queries from session 3
+query = "SELECT s.segment,
+                COUNT(DISTINCT(s.contact_id)) AS 'numdonors',
+                COUNT(a.amount)               AS 'numdonations',
+                CEILING(AVG(a.amount))        AS 'avgamount',
+                CEILING(SUM(a.amount))        AS 'totalgenerosity'
+         FROM
+           segments s
+         LEFT JOIN
+           (SELECT *
+            FROM acts a,
+                 periods p
+            WHERE p.period_id = 0
+              AND a.act_date >= p.first_day
+			     AND a.act_date <  p.last_day) AS a
+         ON (a.contact_id = s.contact_id)
+         WHERE (s.period_id = 1) AND
+               (s.segment IS NOT NULL)
+         GROUP BY 1"
+segments = sqlQuery(db, query)
+print(segments)
+```
+
+```{r}
+segments$segment = factor(segments$segment, levels = c("AUTO", "TOP", "BOTTOM", "NEW", "WARM", "COLD", "LOST"), ordered = TRUE)
+```
+
+
+```{r}
+segments$numdonors_pc       = segments$numdonors       / sum(segments$numdonors)
+segments$totalgenerosity_pc = segments$totalgenerosity / sum(segments$totalgenerosity)
+print(segments)
+```
+
+```{r}
+segments<-read.csv("kmeans_first_outcome.csv", as.is = TRUE)
+segments = segments[c(2:6),]
+segments$segment = c('Seg 1', 'Seg 2', 'Seg 3', 'Seg 4', 'Seg 5')
+segments
+```
+
+```{r}
+df = rbind.data.frame(cbind.data.frame(segment = segments$segment, percent = segments$numdonors_pc,       category = "Donors"),
+                      cbind.data.frame(segment = segments$segment, percent = 
+                                       segments$totalgenerosity_pc, category = "Fundraising"))
+print(df)
+```
+
+
+
+```{r}
+chart = ggplot(data = df, aes(x = segment, y = percent, fill = category)) +
+   geom_bar(stat = "identity") +
+   facet_grid(. ~ category) +
+   geom_text(aes(label = paste(round(100 * percent, 1), "%", sep = "")), size = 4, fontface = "bold") +
+   coord_flip() +
+   scale_y_continuous(labels = percent) +
+   theme(legend.position = "none")
+print(chart)
+```
+
+
+
+
+
+
+
+
